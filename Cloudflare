@@ -1,0 +1,26 @@
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
+
+async function handleRequest(request) {
+  // iframe을 사용하여 원본 페이지 로드
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>내 워크로그</title>
+      <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; position: absolute; }
+      </style>
+    </head>
+    <body>
+      <iframe src="?" frameborder="0" allowfullscreen></iframe>
+    </body>
+    </html>
+  `;
+  
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+  });
+}
