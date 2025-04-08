@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>옥계노루 출퇴근</title>
+  <base target="_top">
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    body {
+      font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+      -webkit-text-size-adjust: 100%;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 30px;
+      color: #2c3e50;
+      font-weight: bold;
+    }
+    
+    #clock {
+      font-size: 3.5rem;
+      font-weight: bold;
+      margin: 30px 0;
+      color: #3498db;
+      text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+    }
+    
+    #employeeSelect {
+      width: 100%;
+      height: 70px;
+      padding: 0 20px;
+      font-size: 1.8rem;
+      margin-bottom: 20px;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      background-color: white;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url('data:image/svg+xml;utf8,<svg fill="gray" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+      background-repeat: no-repeat;
+      background-position: right 20px center;
+    }
+    
+    #passwordInput {
+      width: 100%;
+      height: 70px;
+      padding: 0 20px;
+      font-size: 1.8rem;
+      margin-bottom: 30px;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      background-color: white;
+      text-align: center;
+      letter-spacing: 5px;
+    }
+    
+    button {
+      width: 48%;
+      height: 100px;
+      font-size: 1.8rem;
+      font-weight: bold;
+      margin: 10px 1%;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.2s;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    button:active {
+      transform: scale(0.98);
+      box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+    }
+    
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    
+    #checkInBtn {
+      background-color: #27ae60;
+      color: white;
+    }
+    
+    #checkOutBtn {
+      background-color: #e74c3c;
+      color: white;
+    }
+    
+    .status {
+      margin-top: 30px;
+      font-size: 1.5rem;
+      min-height: 60px;
+      padding: 15px;
+      border-radius: 10px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+      opacity: 1;
+    }
+    
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      opacity: 1;
+    }
+    
+    /* 테블릿 최적화 추가 */
+    @media (max-width: 768px) {
+      h1 {
+        font-size: 2.2rem;
+      }
+      
+      #clock {
+        font-size: 3rem;
+      }
+      
+      #employeeSelect, #passwordInput, button {
+        font-size: 1.6rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>알바 출퇴근 시스템</h1>
+    
+    <div id="clock">00:00</div>
+    
+    <select id="employeeSelect">
+      <option value="" disabled selected>이름을 선택하세요</option>
+    </select>
+    
+    <input type="password" id="passwordInput" maxlength="6" placeholder="비밀번호 입력" inputmode="numeric" pattern="[0-9]*">
+    
+    <div class="buttons">
+      <button id="checkInBtn">출근 등록</button>
+      <button id="checkOutBtn">퇴근 등록</button>
+    </div>
+    
+    <div id="statusMessage" class="status"></div>
+  </div>
+
+  <script>
+    // 현재 시간 표시 (초 제외)
+    function updateClock() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('clock').textContent = `${hours}:${minutes}`;
+    }
+
+    // 페이지 로드시 실행
+    document.addEventListener('DOMContentLoaded', function() {
+      // 시계 시작 (1분마다 업데이트)
+      updateClock();
+      setInterval(updateClock, 60000);
+      
+      // 직원 목록 불러오기
+      google.script.run
+        .withSuccessHandler(loadEmployees)
+        .withFailureHandler(function(error) {
+          showMessage('직원 목록을 불러오는데 실패했습니다.', 'error');
+        })
+        .getEmployees();
+    });
+
+    // 직원 목록 로드 함수
+    function loadEmployees(employees) {
+      const selectElement = document.getElementById('employeeSelect');
+      
+      if (!employees || employees.length === 0) {
+        showMessage('직원 정보가 없습니다. 관리자에게 문의하세요.', 'error');
+        return;
+      }
+      
+      employees.forEach(function(employee) {
+        const option = document.createElement('option');
+        option.value = employee.name;
+        option.textContent = employee.name;
+        selectElement.appendChild(option);
+      });
+    }
+
+    // 출근 버튼 이벤트
+    document.getElementById('checkInBtn').addEventListener('click', function() {
+      recordAttendance('출근');
+    });
+
+    // 퇴근 버튼 이벤트
+    document.getElementById('checkOutBtn').addEventListener('click', function() {
+      recordAttendance('퇴근');
+    });
+
+    // 출퇴근 기록 함수
+    function recordAttendance(type) {
+      const employeeSelect = document.getElementById('employeeSelect');
+      const passwordInput = document.getElementById('passwordInput');
+      
+      if (employeeSelect.value === '') {
+        showMessage('이름을 선택해주세요.', 'error');
+        return;
+      }
+      
+      if (passwordInput.value === '') {
+        showMessage('비밀번호를 입력해주세요.', 'error');
+        return;
+      }
+      
+      // 버튼 비활성화 (중복 클릭 방지)
+      document.getElementById('checkInBtn').disabled = true;
+      document.getElementById('checkOutBtn').disabled = true;
+      
+      showMessage('처리 중...', 'success');
+      
+      // Google Apps Script 함수 호출 (서버측 비밀번호 검증 사용)
+      google.script.run
+        .withSuccessHandler(function(result) {
+          // 버튼 다시 활성화
+          document.getElementById('checkInBtn').disabled = false;
+          document.getElementById('checkOutBtn').disabled = false;
+          
+          if (result.success) {
+            showMessage(result.message, 'success');
+            // 비밀번호 입력 초기화
+            passwordInput.value = '';
+          } else {
+            showMessage(result.message || '오류가 발생했습니다. 다시 시도해주세요.', 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          // 버튼 다시 활성화
+          document.getElementById('checkInBtn').disabled = false;
+          document.getElementById('checkOutBtn').disabled = false;
+          
+          showMessage('서버 오류가 발생했습니다.', 'error');
+          console.error(error);
+        })
+        .recordAttendanceWithPassword(employeeSelect.value, passwordInput.value, type);
+    }
+
+    // 상태 메시지 표시 함수
+    function showMessage(message, type) {
+      const statusMessage = document.getElementById('statusMessage');
+      statusMessage.textContent = message;
+      statusMessage.className = `status ${type || ''}`;
+      
+      // 5초 후 메시지 사라짐 (성공 메시지만)
+      if (type === 'success') {
+        setTimeout(function() {
+          statusMessage.className = 'status';
+        }, 5000);
+      }
+    }
+  </script>
+</body>
+</html>
