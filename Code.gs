@@ -176,7 +176,7 @@ const SheetManager = {
     // 직원 열 찾기
     for (let col = 1; col < headerRow.length; col++) {
       const empName = headerRow[col];
-      if (empName && !['날짜', '요일'].includes(empName)) {
+      if (empName && !['날짜', '요일', '주차'].includes(empName)) {  // '주차' 추가
         const colHeader = colHeaderRow[col];
         if (colHeader === '출근시간') {
           existingEmployees.push(empName);
@@ -234,44 +234,61 @@ const SheetManager = {
   
   // 기본 시트 구조 설정
   setupBasicSheetStructure: function(sheet, date) {
-    // 열 너비 설정
-    sheet.setColumnWidth(1, 100); // 날짜 열
-    sheet.setColumnWidth(2, 60);  // 요일 열
+
+  // 날짜/요일/주차 헤더 설정
+  sheet.getRange(1, 1).setValue('날짜');
+  sheet.getRange(1, 2).setValue('요일');
+  sheet.getRange(1, 3).setValue('주차'); // 새로운 주차 열 추가
+  sheet.getRange(1, 1, 2, 1).merge();
+  sheet.getRange(1, 2, 2, 1).merge();
+  sheet.getRange(1, 3, 2, 1).merge();
+  sheet.getRange(1, 1, 2, 3).setBackground('#f3f3f3'); // 헤더 배경색
+
+  // 열 너비 설정
+  sheet.setColumnWidth(1, 100); // 날짜 열
+  sheet.setColumnWidth(2, 60);  // 요일 열
+  sheet.setColumnWidth(3, 60);  // 주차 열
+
+  // 날짜 채우기
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const dates = [];
+  for (let i = 1; i <= lastDay; i++) {
+    const currentDate = new Date(date.getFullYear(), date.getMonth(), i);
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const dayOfWeek = dayNames[currentDate.getDay()];
     
-    // 날짜/요일 헤더 설정
-    sheet.getRange(1, 1).setValue('날짜');
-    sheet.getRange(1, 2).setValue('요일');
-    sheet.getRange(1, 1, 2, 1).merge();
-    sheet.getRange(1, 2, 2, 1).merge();
-    sheet.getRange(1, 1, 2, 2).setBackground('#f3f3f3'); // 헤더 배경색
-    
-    // 날짜 채우기
-    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    const dates = [];
-    for (let i = 1; i <= lastDay; i++) {
-      const currentDate = new Date(date.getFullYear(), date.getMonth(), i);
-      const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-      const dayOfWeek = dayNames[currentDate.getDay()];
-      
-      // 주차 계산
-      const weekOfMonth = Math.ceil(i / 7);
-      dates.push([
-        currentDate,
-        `${dayOfWeek} (${weekOfMonth}주)`
-      ]);
-    }
-    
+    // 날짜, 요일만 데이터에 추가 (주차는 나중에 수식으로)
+    dates.push([
+      currentDate,
+      dayOfWeek
+    ]);
+  }
+
+
     // 날짜 데이터 입력 및 서식 설정
     const dateRange = sheet.getRange(3, 1, dates.length, 2);
     dateRange.setValues(dates);
     sheet.getRange(3, 1, dates.length, 1).setNumberFormat(CONSTANTS.DATE_FORMAT);
     sheet.getRange(3, 2, dates.length, 1).setHorizontalAlignment('center');
-    
+
+    // 주차 열에 WEEKNUM 수식 추가
+    for (let i = 0; i < dates.length; i++) {
+      const rowNum = i + 3;  // 데이터 시작 행 (3부터 시작)
+      
+      // 주차 계산 수식: 해당 날짜의 주차 - 해당 월 첫날의 주차 + 1
+      const formula = `=WEEKNUM(A${rowNum},2)-WEEKNUM(DATE(YEAR(A${rowNum}),MONTH(A${rowNum}),1),2)+1 & "주"`;
+      
+      // 주차 열에 수식 설정
+      sheet.getRange(rowNum, 3).setFormula(formula);
+      sheet.getRange(rowNum, 3).setHorizontalAlignment('center');
+    }
+
     // 총 근무시간 행 추가
     const totalRow = dates.length + 3;
     sheet.getRange(totalRow, 1).setValue(CONSTANTS.TOTAL_HOURS_ROW);
-    sheet.getRange(totalRow, 1, 1, 2).merge();
+    sheet.getRange(totalRow, 1, 1, 3).merge(); // 3열까지 병합 (날짜, 요일, 주차)
     sheet.getRange(totalRow, 1).setFontWeight('bold');
+
     
     return {
       lastDay: lastDay,
@@ -293,7 +310,7 @@ const SheetManager = {
       }
       
       employees.forEach((emp, index) => {
-        const startCol = 3 + (index * 3); // 각 직원의 출근시간 열
+        const startCol = 4 + (index * 3); // 각 직원의 출근시간 열
         
         // 현재 열의 A1 표기법 얻기
         const checkInCol = Utils.getColumnLetter(startCol);
@@ -575,7 +592,7 @@ function syncEmployeesForMonth(month) {
       }
       
       // 마지막 직원 열 위치 찾기
-      let lastColumn = 2; // 날짜, 요일 열
+      let lastColumn = 3; // 날짜, 요일 열
       for (const empName in employeeColumns) {
         const startCol = employeeColumns[empName];
         lastColumn = Math.max(lastColumn, startCol + 2); // 각 직원은 3열 사용
@@ -659,7 +676,7 @@ const AttendanceManager = {
 
       // 직원의 열 찾기
       let employeeStartCol = -1;
-      for(let i = 2; i < employeeRow.length; i += 3) {
+      for(let i = 3; i < employeeRow.length; i += 3) {
         if(employeeRow[i] === employeeName) {
           employeeStartCol = i + 1;  // +1 because getRange is 1-based
           break;
@@ -673,11 +690,14 @@ const AttendanceManager = {
         };
       }
 
-      // 오늘 날짜의 행 찾기
-      const today = Utilities.formatDate(now, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+      // 날짜 열 데이터 가져오기
       const dateColumn = sheet.getRange(3, 1, sheet.getLastRow(), 1).getValues();
+      
+      // 현재 날짜 포맷
+      const today = Utilities.formatDate(now, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+      
+      // 오늘 날짜의 행 찾기
       let todayRow = -1;
-
       for(let i = 0; i < dateColumn.length; i++) {
         if(dateColumn[i][0] instanceof Date) {
           const rowDate = Utilities.formatDate(dateColumn[i][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
@@ -711,14 +731,51 @@ const AttendanceManager = {
         sheet.getRange(todayRow, employeeStartCol).setValue(currentTime);
         
       } else if(type === '퇴근') {
-        // 출근 여부 확인
-        const checkInValue = sheet.getRange(todayRow, employeeStartCol).getValue();
-        const checkOutValue = sheet.getRange(todayRow, employeeStartCol + 1).getValue();
+        // 00시 이후 퇴근인 경우 전날 확인 (새벽 0시~4시 사이)
+        const hour = now.getHours();
+        let targetRow = todayRow;
+        let checkInRow = todayRow;
+        
+        // 00시~04시 사이라면 전날 데이터 확인
+        if(hour >= 0 && hour < 4) {
+          // 전날 날짜 계산
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = Utilities.formatDate(yesterday, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+          
+          // 전날 행 찾기
+          for(let i = 0; i < dateColumn.length; i++) {
+            if(dateColumn[i][0] instanceof Date) {
+              const rowDate = Utilities.formatDate(dateColumn[i][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+              if(rowDate === yesterdayStr) {
+                checkInRow = i + 3;  // +3 because we start from row 3 and getRange is 1-based
+                break;
+              }
+            }
+          }
+          
+          // 전날에 출근 기록이 있는지 확인
+          if(checkInRow !== todayRow) {
+            const yesterdayCheckIn = sheet.getRange(checkInRow, employeeStartCol).getValue();
+            const yesterdayCheckOut = sheet.getRange(checkInRow, employeeStartCol + 1).getValue();
+            
+            // 전날 출근 기록이 있고 퇴근 기록이 없으면 전날 행에 퇴근 처리
+            if(yesterdayCheckIn && yesterdayCheckIn !== '미출근' && 
+              (!yesterdayCheckOut || yesterdayCheckOut === '' || yesterdayCheckOut === '미퇴근')) {
+              targetRow = checkInRow;
+            }
+          }
+        }
+        
+        // 최종 결정된 행에서 출퇴근 상태 확인
+        const checkInValue = sheet.getRange(targetRow, employeeStartCol).getValue();
+        const checkOutValue = sheet.getRange(targetRow, employeeStartCol + 1).getValue();
 
+        // 출근 기록 없는 경우
         if(!checkInValue || checkInValue === '미출근') {
           // 출근 기록이 없는 경우
-          sheet.getRange(todayRow, employeeStartCol).setValue('미출근');
-          sheet.getRange(todayRow, employeeStartCol + 1).setValue(currentTime);
+          sheet.getRange(targetRow, employeeStartCol).setValue('미출근');
+          sheet.getRange(targetRow, employeeStartCol + 1).setValue(currentTime);
           return {
             success: true,
             message: `${employeeName}님 퇴근 처리 완료 (${currentTime}) - 출근 기록이 없습니다.`,
@@ -726,16 +783,26 @@ const AttendanceManager = {
           };
         }
 
+        // 이미 퇴근한 경우
         if(checkOutValue && checkOutValue !== '미퇴근') {
           return {
             success: false,
-            message: `${employeeName}님은 오늘 이미 퇴근 처리되었습니다.`,
+            message: `${employeeName}님은 이미 퇴근 처리되었습니다.`,
             timestamp: roundedTime.toString()
           };
         }
 
         // 퇴근 시간 입력
-        sheet.getRange(todayRow, employeeStartCol + 1).setValue(currentTime);
+        sheet.getRange(targetRow, employeeStartCol + 1).setValue(currentTime);
+        
+        // 00시 이후에 전날 행에 기록한 경우 특별 메시지
+        if(targetRow !== todayRow) {
+          return {
+            success: true,
+            message: `${employeeName}님 ${type} 처리 완료 (${currentTime}) - 전날 기록에 추가되었습니다.`,
+            timestamp: roundedTime.toString()
+          };
+        }
       }
 
       return {
@@ -852,7 +919,7 @@ const SummaryManager = {
         const hourColumnLetter = Utils.getColumnLetter(hourColumn);
         
         // 주차별 근무시간 합계 계산 (해당 주차의 데이터만 합산)
-        const hoursFormula = `=SUMIFS(${hourColumnLetter}3:${hourColumnLetter}${startRow - 3}, B3:B${startRow - 3}, "*${week}주*")`;
+        const hoursFormula = `=SUMIFS(${hourColumnLetter}3:${hourColumnLetter}${startRow - 3}, C3:C${startRow - 3}, "${week}주")`;
         sheet.getRange(weekRow, startCol + 1).setFormula(hoursFormula);
         sheet.getRange(weekRow, startCol + 1).setNumberFormat('0.0');
         
@@ -864,14 +931,18 @@ const SummaryManager = {
         // 주차별 주휴수당 및 세금 계산
         const taxRow = startRow + 8 + week;
         
+        const bonusFormula = `=IF(${Utils.getColumnLetter(startCol + 1)}${weekRow}>=15, 
+        ${Utils.getColumnLetter(startCol + 1)}${weekRow} / 5 * ${Utils.getColumnLetter(startCol + 2)}${startRow + 1}, 
+        0)`;
+        sheet.getRange(taxRow, startCol).setFormula(bonusFormula);
         sheet.getRange(taxRow, startCol).setNumberFormat('#,##0');
 
         // 주차별 급여 참조
-        sheet.getRange(taxRow, startCol + 1).setFormula(`=${Utils.getColumnLetter(startCol + 2)}${weekRow} + ${Utils.getColumnLetter(startCol)}${taxRow}`);
+        sheet.getRange(taxRow, startCol + 1).setFormula(`=${Utils.getColumnLetter(startCol + 2)}${weekRow}`);
         sheet.getRange(taxRow, startCol + 1).setNumberFormat('#,##0');
         
         // 3.3% 세금 계산
-        sheet.getRange(taxRow, startCol + 2).setFormula(`=${Utils.getColumnLetter(startCol + 1)}${taxRow}*0.033`);
+        sheet.getRange(taxRow, startCol + 2).setFormula(`=(${Utils.getColumnLetter(startCol)}${taxRow}+${Utils.getColumnLetter(startCol + 1)}${taxRow})*0.033`);
         sheet.getRange(taxRow, startCol + 2).setNumberFormat('#,##0');
       }
       
@@ -890,8 +961,8 @@ const SummaryManager = {
       sheet.getRange(startRow + 15, startCol + 2).setFormula(taxSum);
       sheet.getRange(startRow + 15, startCol + 2).setNumberFormat('#,##0');
       
-      // 최종 지급액 계산 (총합 - 3.3% 세금)
-      const finalAmount = `=${Utils.getColumnLetter(startCol + 1)}${startRow + 15} - ${Utils.getColumnLetter(startCol + 2)}${startRow + 15}`;
+      // 최종 지급액 계산 (주휴합 + 총합 - 3.3% 세금)
+      const finalAmount = `=${Utils.getColumnLetter(startCol)}${startRow + 15} + ${Utils.getColumnLetter(startCol + 1)}${startRow + 15} - ${Utils.getColumnLetter(startCol + 2)}${startRow + 15}`;
       sheet.getRange(startRow + 17, startCol + 2).setFormula(finalAmount);
       sheet.getRange(startRow + 17, startCol + 2).setNumberFormat('#,##0');
       sheet.getRange(startRow + 17, startCol + 2).setFontWeight('bold');
@@ -992,7 +1063,7 @@ const SummaryManager = {
       
       // 직원 열 찾기
       let employeeCol = -1;
-      for (let col = 2; col < data[0].length; col += 3) {
+      for (let col = 3; col < data[0].length; col += 3) {
         if (data[0][col] === employee.name) {
           employeeCol = col;
           break;
@@ -1092,7 +1163,7 @@ const SummaryManager = {
       
       // 직원 요약 정보 찾기
       let empSummaryCol = -1;
-      for (let col = 2; col < data[summaryStartRow].length; col += 3) {
+      for (let col = 3; col < data[summaryStartRow].length; col += 3) {
         if (data[summaryStartRow][col] === employee.name) {
           empSummaryCol = col;
           break;
@@ -1233,7 +1304,7 @@ const AutomationManager = {
       const employees = EmployeeManager.getEmployees();
       
       // 직원별 열 추가
-      let nextCol = 3; // 날짜, 요일 다음부터 시작
+      let nextCol = 4; // 날짜, 요일 다음부터 시작
       for (const employee of employees) {
         nextCol = EmployeeManager.setupEmployeeColumns(newSheet, employee, nextCol, lastDay, totalRow);
       }
@@ -1242,7 +1313,7 @@ const AutomationManager = {
       newSheet.getRange(summaryRow, 1).setValue(CONSTANTS.SUMMARY_HEADER);
       
       // 직원별 요약 섹션 추가
-      nextCol = 3; // 다시 처음부터
+      nextCol = 4; // 다시 처음부터
       for (const employee of employees) {
         SummaryManager.createEmployeeSummarySection(newSheet, employee, summaryRow, nextCol);
         nextCol += 3;
@@ -1279,20 +1350,51 @@ const AutomationManager = {
 
 // 웹 앱으로 접근 시 실행되는 함수
 function doGet(e) {
-  // URL 쿼리 파라미터로 페이지 구분 (page=admin이면 관리자 페이지)
-  const page = e && e.parameter && e.parameter.page ? e.parameter.page : '';
-  
-  if (page === 'worklog') {
-    return HtmlService.createTemplateFromFile('Dashboard')
-      .evaluate()
-      .setTitle('근무 대시보드')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  } else {
-    // 기본 출퇴근 기록 앱
-    return HtmlService.createTemplateFromFile('Index')
-      .evaluate()
-      .setTitle('알바 출퇴근 시스템')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  try {
+    Logger.log("e 파라미터: " + JSON.stringify(e));
+    
+    // 파라미터 체크
+    const page = e && e.parameter && e.parameter.page ? e.parameter.page : '';
+    Logger.log("페이지 값: " + page);
+    
+    if (page === 'worklog') {
+      // HtmlOutput으로 변경
+      return HtmlService.createHtmlOutputFromFile('Dashboard')
+        .setTitle('근무 대시보드')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    } else {
+      return HtmlService.createHtmlOutputFromFile('Index')
+        .setTitle('옥계노루 출퇴근')
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    }
+  } catch (error) {
+    Logger.log("오류: " + error.message);
+    // 오류 화면 표시
+    return HtmlService.createHtmlOutput(
+      "<h1>오류가 발생했습니다</h1>" +
+      "<p>상세 정보: " + error.message + "</p>"
+    );
+  }
+}
+// 로고 1v1ijhnNz6YHZKsUN5jweT-yuYcHzWIPX
+// 노루 1SgnLFH1Bu23sUiQ20BOygL7UnbMAAB6X
+function getLogoImage() {
+  try {
+    var logoFileId = "1SgnLFH1Bu23sUiQ20BOygL7UnbMAAB6X"; // 실제 파일 ID로 변경
+    
+    var file = DriveApp.getFileById(logoFileId);
+    var contentType = file.getMimeType();
+    var blob = file.getBlob();
+    
+    return {
+      data: Utilities.base64Encode(blob.getBytes()),
+      contentType: contentType,
+      name: file.getName()
+    };
+  } catch (e) {
+    Logger.log("오류 발생: " + e.toString());
+    return { error: e.toString() };
   }
 }
 
