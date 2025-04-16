@@ -1,13 +1,5 @@
 # 옥계노루 출퇴근 관리 시스템 (okgye_noru)
 
-<div align="center">
-  
-![version](https://img.shields.io/badge/version-1.0.0-blue)
-![platform](https://img.shields.io/badge/platform-Google%20Apps%20Script-yellow)
-![license](https://img.shields.io/badge/license-MIT-green)
-
-</div>
-
 <p align="center">
   알바생 출퇴근 관리 및 근무 시간 확인을 위한 Google Apps Script 기반 시스템
 </p>
