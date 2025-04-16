@@ -71,12 +71,19 @@
       letter-spacing: 5px;
     }
     
+    /* 버튼 그리드 레이아웃 */
+    .buttons-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-gap: 15px;
+      margin-bottom: 20px;
+    }
+    
     button {
-      width: 48%;
+      width: 100%;
       height: 100px;
       font-size: 1.8rem;
       font-weight: bold;
-      margin: 10px 1%;
       border: none;
       border-radius: 10px;
       cursor: pointer;
@@ -128,13 +135,48 @@
       opacity: 1;
     }
     
+    .header-grid {
+      display: grid;
+      grid-template-columns: 1fr 2fr; /* 오른쪽 영역을 좀 더 넓게 */
+      grid-template-rows: auto auto;
+      grid-gap: 0px; /* 간격 좀 더 넓게 */
+      margin-bottom: 20px; /* 아래 여백 증가 */
+      align-items: center;
+    }
+
+    /* 로고 영역 조정 */
+    .logo-box {
+      grid-column: 1;
+      grid-row: 1 / span 4;
+      padding: 0px 0px 0px 0px; /* 오른쪽 패딩 제거 */
+    }
+
+    /* 로고 크기 키우기 */
+    .logo {
+      width: 200px; /* 로고 크기 증가 */
+      height: auto;
+      display: block;
+    }
+
+    /* 제목 영역 */
+    .title-box {
+      padding: 15px 5px 0px 5px; /* 아래쪽 패딩 제거 (위, 오른쪽, 아래, 왼쪽) */
+      margin-bottom: -50px;
+    }
+
+    .clock-box {
+      padding: 0 5px 0px 5px; /* 위쪽 패딩 제거 */
+    }
+
     /* 테블릿 최적화 추가 */
     @media (max-width: 768px) {
       h1 {
+        margin: 0;
         font-size: 2.2rem;
       }
       
       #clock {
+        margin: 0;
         font-size: 3rem;
       }
       
@@ -146,9 +188,23 @@
 </head>
 <body>
   <div class="container">
-    <h1>알바 출퇴근 시스템</h1>
-    
-    <div id="clock">00:00</div>
+    <!-- 헤더 섹션 수정 -->
+    <div class="header-grid">
+      <!-- 왼쪽 로고 영역 -->
+      <div class="logo-box">
+        <img id="companyLogo" alt="로고" class="logo">
+      </div>
+      
+      <!-- 오른쪽 상단 제목 영역 -->
+      <div class="title-box">
+        <h1>출퇴근</h1>
+      </div>
+      
+      <!-- 오른쪽 하단 시계 영역 -->
+      <div class="clock-box">
+        <div id="clock">00:00</div>
+      </div>
+    </div>
     
     <select id="employeeSelect">
       <option value="" disabled selected>이름을 선택하세요</option>
@@ -156,9 +212,10 @@
     
     <input type="password" id="passwordInput" maxlength="6" placeholder="비밀번호 입력" inputmode="numeric" pattern="[0-9]*">
     
-    <div class="buttons">
-      <button id="checkInBtn">출근 등록</button>
-      <button id="checkOutBtn">퇴근 등록</button>
+    <!-- 출퇴근 버튼을 그리드로 배치 -->
+    <div class="buttons-grid">
+      <button id="checkInBtn">출근</button>
+      <button id="checkOutBtn">퇴근</button>
     </div>
     
     <div id="statusMessage" class="status"></div>
@@ -178,7 +235,9 @@
       // 시계 시작 (1분마다 업데이트)
       updateClock();
       setInterval(updateClock, 60000);
-      
+
+      loadLogoImage();
+
       // 직원 목록 불러오기
       google.script.run
         .withSuccessHandler(loadEmployees)
@@ -274,6 +333,36 @@
           statusMessage.className = 'status';
         }, 5000);
       }
+    }
+
+    // 로고 이미지 로드 함수
+    function loadLogoImage() {
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (response && response.data) {
+            console.log("이미지 데이터 받음: " + response.name);
+            console.log("데이터 길이: " + response.data.length);
+            
+            const logoImg = document.getElementById('companyLogo');
+            logoImg.src = "data:" + response.contentType + ";base64," + response.data;
+            
+            logoImg.onload = function() {
+              console.log("이미지 로드 성공!");
+            };
+            
+            logoImg.onerror = function() {
+              console.error("이미지 로드 실패!");
+            };
+          } else if (response && response.error) {
+            console.error("서버 오류:", response.error);
+          } else {
+            console.error("이미지 데이터가 없습니다");
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error("로고 로딩 실패:", error);
+        })
+        .getLogoImage();
     }
   </script>
 </body>
