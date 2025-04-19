@@ -275,7 +275,7 @@ const SheetManager = {
     for (let i = 0; i < dates.length; i++) {
       const rowNum = i + 3;  // 데이터 시작 행 (3부터 시작)
       
-      // 주차 계산 수식: 해당 날짜의 주차 - 해당 월 첫날의 주차 + 1
+      // 주차 계산 수식: 해당 날짜의 주차 
       const formula = `=WEEKNUM(A${rowNum},2)-WEEKNUM(DATE(YEAR(A${rowNum}),MONTH(A${rowNum}),1),2)+1 & "주"`;
       
       // 주차 열에 수식 설정
@@ -654,9 +654,11 @@ const AttendanceManager = {
     try {
       const now = new Date();
       const currentMonth = now.getMonth() + 1;
+      const currentDay = now.getDate();
+      const currentHour = now.getHours();
       
       // 현재 월의 출퇴근기록 시트 가져오기
-      const sheet = SheetManager.getAttendanceSheet(currentMonth);
+      let sheet = SheetManager.getAttendanceSheet(currentMonth);
       
       if (!sheet) {
         return {
@@ -730,39 +732,126 @@ const AttendanceManager = {
         // 출근 시간 입력
         sheet.getRange(todayRow, employeeStartCol).setValue(currentTime);
         
-      } else if(type === '퇴근') {
-        // 00시 이후 퇴근인 경우 전날 확인 (새벽 0시~4시 사이)
-        const hour = now.getHours();
-        let targetRow = todayRow;
-        let checkInRow = todayRow;
+        return {
+          success: true,
+          message: `${employeeName}님 ${type} 처리 완료 (${currentTime})`,
+          timestamp: roundedTime.toString()
+        };
         
-        // 00시~04시 사이라면 전날 데이터 확인
-        if(hour >= 0 && hour < 4) {
+      } else if(type === '퇴근') {
+        // 퇴근 처리 중 월 전환 특별 케이스 확인 (1일 새벽 00시~04시)
+        if (currentDay === 1 && currentHour >= 0 && currentHour < 4) {
+          // 이전 월 계산
+          const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+          const prevMonthSheet = SheetManager.getAttendanceSheet(prevMonth);
+          
+          // 이전 월 시트가 있으면 처리
+          if (prevMonthSheet) {
+            Logger.log(`월 전환 퇴근 감지: ${prevMonth}월 시트 확인`);
+            
+            // 이전 월의 마지막 날 계산
+            const lastDayOfPrevMonth = new Date(
+              currentMonth === 1 ? now.getFullYear() - 1 : now.getFullYear(), 
+              currentMonth === 1 ? 11 : currentMonth - 2, 
+              0
+            ).getDate();
+            
+            // 이전 월 시트에서 직원 열 찾기
+            const prevHeaderRows = prevMonthSheet.getRange(1, 1, 2, prevMonthSheet.getLastColumn()).getValues();
+            const prevEmployeeRow = prevHeaderRows[0];
+            
+            let prevEmployeeStartCol = -1;
+            for(let i = 3; i < prevEmployeeRow.length; i += 3) {
+              if(prevEmployeeRow[i] === employeeName) {
+                prevEmployeeStartCol = i + 1;
+                break;
+              }
+            }
+            
+            if(prevEmployeeStartCol === -1) {
+              Logger.log(`이전 월(${prevMonth}월) 시트에서 직원 정보를 찾을 수 없음`);
+            } else {
+              // 이전 월 마지막 날의 데이터 찾기
+              const prevDateColumn = prevMonthSheet.getRange(3, 1, prevMonthSheet.getLastRow(), 1).getValues();
+              let lastDayRow = -1;
+              
+              for(let i = 0; i < prevDateColumn.length; i++) {
+                if(prevDateColumn[i][0] instanceof Date) {
+                  const rowDay = prevDateColumn[i][0].getDate();
+                  if(rowDay === lastDayOfPrevMonth) {
+                    lastDayRow = i + 3;  // +3 because we start from row 3
+                    break;
+                  }
+                }
+              }
+              
+              if(lastDayRow === -1) {
+                Logger.log(`이전 월 시트에서 마지막 날(${lastDayOfPrevMonth}일)을 찾을 수 없음`);
+              } else {
+                // 이전 월 마지막 날의 출근 기록 확인
+                const checkInValue = prevMonthSheet.getRange(lastDayRow, prevEmployeeStartCol).getValue();
+                const checkOutValue = prevMonthSheet.getRange(lastDayRow, prevEmployeeStartCol + 1).getValue();
+                
+                // 출근 기록이 있고 퇴근 기록이 없으면 이전 월 시트에 퇴근 처리
+                if(checkInValue && checkInValue !== '미출근' && 
+                  (!checkOutValue || checkOutValue === '' || checkOutValue === '미퇴근')) {
+                  
+                  // 이미 퇴근 처리되었는지 다시 확인
+                  if(checkOutValue && checkOutValue !== '미퇴근') {
+                    return {
+                      success: false,
+                      message: `${employeeName}님은 이미 퇴근 처리되었습니다.`,
+                      timestamp: roundedTime.toString()
+                    };
+                  }
+                  
+                  // 퇴근 시간 입력
+                  prevMonthSheet.getRange(lastDayRow, prevEmployeeStartCol + 1).setValue(currentTime);
+                  
+                  return {
+                    success: true,
+                    message: `${employeeName}님 ${type} 처리 완료 (${currentTime}) - ${prevMonth}월 ${lastDayOfPrevMonth}일 기록에 추가되었습니다.`,
+                    timestamp: roundedTime.toString()
+                  };
+                }
+              }
+            }
+            // 이전 월 마지막 날에 출근 기록이 없거나 이미 퇴근 처리됨 - 일반 처리로 진행
+            Logger.log(`이전 월 마지막 날에 출근 기록 없음 또는 이미 퇴근 처리됨 - 일반 처리로 진행`);
+          }
+        }
+        
+        // 일반적인 퇴근 처리 (이전 월 처리가 안 된 경우 포함)
+        let targetRow = todayRow;
+        
+        // 00시~04시 사이라면 전날 데이터 확인 (월 전환이 아닌 경우)
+        if(currentHour >= 0 && currentHour < 4 && currentDay !== 1) {
           // 전날 날짜 계산
           const yesterday = new Date(now);
           yesterday.setDate(yesterday.getDate() - 1);
           const yesterdayStr = Utilities.formatDate(yesterday, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
           
           // 전날 행 찾기
+          let yesterdayRow = -1;
           for(let i = 0; i < dateColumn.length; i++) {
             if(dateColumn[i][0] instanceof Date) {
               const rowDate = Utilities.formatDate(dateColumn[i][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
               if(rowDate === yesterdayStr) {
-                checkInRow = i + 3;  // +3 because we start from row 3 and getRange is 1-based
+                yesterdayRow = i + 3;
                 break;
               }
             }
           }
           
           // 전날에 출근 기록이 있는지 확인
-          if(checkInRow !== todayRow) {
-            const yesterdayCheckIn = sheet.getRange(checkInRow, employeeStartCol).getValue();
-            const yesterdayCheckOut = sheet.getRange(checkInRow, employeeStartCol + 1).getValue();
+          if(yesterdayRow > 0) {
+            const yesterdayCheckIn = sheet.getRange(yesterdayRow, employeeStartCol).getValue();
+            const yesterdayCheckOut = sheet.getRange(yesterdayRow, employeeStartCol + 1).getValue();
             
             // 전날 출근 기록이 있고 퇴근 기록이 없으면 전날 행에 퇴근 처리
             if(yesterdayCheckIn && yesterdayCheckIn !== '미출근' && 
               (!yesterdayCheckOut || yesterdayCheckOut === '' || yesterdayCheckOut === '미퇴근')) {
-              targetRow = checkInRow;
+              targetRow = yesterdayRow;
             }
           }
         }
@@ -803,93 +892,165 @@ const AttendanceManager = {
             timestamp: roundedTime.toString()
           };
         }
+        
+        return {
+          success: true,
+          message: `${employeeName}님 ${type} 처리 완료 (${currentTime})`,
+          timestamp: roundedTime.toString()
+        };
       }
 
+      // 알 수 없는 처리 타입
       return {
-        success: true,
-        message: `${employeeName}님 ${type} 처리 완료 (${currentTime})`,
-        timestamp: roundedTime.toString()
+        success: false,
+        message: `알 수 없는 처리 타입: ${type}`
       };
 
     } catch (e) {
       Utils.logError('recordAttendance', e);
       return {
         success: false,
-        message: '출퇴근 기록 중 오류가 발생했습니다.'
+        message: '출퇴근 기록 중 오류가 발생했습니다: ' + e.message
       };
     }
   },
   
-  // 전날 미퇴근 처리 함수 (간결한 버전)
+  // 전날 미퇴근 처리 함수
   checkAndMarkMissingCheckouts: function() {
     try {
-      // 1. 현재 월의 출퇴근 시트 가져오기
+      // 1. 현재 날짜 정보 확인
       const now = new Date();
       const currentMonth = now.getMonth() + 1;
-      const sheet = SheetManager.getAttendanceSheet(currentMonth);
+      const currentDay = now.getDate();
       
-      if (!sheet) {
-        Logger.log(`시트를 찾을 수 없음: ${currentMonth}월_출퇴근기록`);
-        return false;
-      }
-      
-      // 2. 전날 날짜 계산
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = Utilities.formatDate(yesterday, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
-      
-      Logger.log(`전날 미퇴근 처리 시작: ${yesterdayStr}`);
-      
-      // 3. 시트 데이터 가져오기
-      const data = sheet.getDataRange().getValues();
       let updatedCount = 0;
       
-      // 4. 전날 행 찾기
-      let yesterdayRow = -1;
-      for (let row = 2; row < data.length; row++) {
-        if (data[row][0] instanceof Date) {
-          const rowDateStr = Utilities.formatDate(data[row][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
-          if (rowDateStr === yesterdayStr) {
-            yesterdayRow = row;
-            break;
+      // 2. 현재 월 시트 처리 (기존 로직)
+      const sheet = SheetManager.getAttendanceSheet(currentMonth);
+      
+      if (sheet) {
+        // 전날 날짜 계산
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = Utilities.formatDate(yesterday, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+        
+        Logger.log(`전날 미퇴근 처리 시작: ${yesterdayStr}`);
+        
+        // 현재 월 시트 데이터 가져오기
+        const data = sheet.getDataRange().getValues();
+        
+        // 전날 행 찾기
+        let yesterdayRow = -1;
+        for (let row = 2; row < data.length; row++) {
+          if (data[row][0] instanceof Date) {
+            const rowDateStr = Utilities.formatDate(data[row][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+            if (rowDateStr === yesterdayStr) {
+              yesterdayRow = row;
+              break;
+            }
+          }
+        }
+        
+        if (yesterdayRow === -1) {
+          Logger.log(`${yesterdayStr} 데이터를 찾을 수 없음`);
+        } else {
+          // 직원별 출퇴근 열 찾기
+          const employeeColumns = {};
+          for (let col = 3; col < data[0].length; col += 3) {
+            const empName = data[0][col];
+            if (empName && !['날짜', '요일', '주차'].includes(empName)) {
+              employeeColumns[empName] = {
+                checkInCol: col, 
+                checkOutCol: col + 1
+              };
+            }
+          }
+          
+          // 각 직원의 미퇴근 확인
+          for (const empName in employeeColumns) {
+            const checkInCol = employeeColumns[empName].checkInCol;
+            const checkOutCol = employeeColumns[empName].checkOutCol;
+            
+            // 출근 기록은 있고 퇴근 기록이 없는 경우
+            const checkInValue = data[yesterdayRow][checkInCol];
+            const checkOutValue = data[yesterdayRow][checkOutCol];
+            
+            if (checkInValue && checkInValue !== '미출근' && 
+                (!checkOutValue || checkOutValue === '' || checkOutValue === '미퇴근')) {
+              
+              // 미퇴근 처리
+              Logger.log(`${empName} 미퇴근 처리 (행: ${yesterdayRow+1})`);
+              sheet.getRange(yesterdayRow + 1, checkOutCol + 1).setValue('미퇴근');
+              updatedCount++;
+            }
           }
         }
       }
       
-      if (yesterdayRow === -1) {
-        Logger.log(`전날(${yesterdayStr}) 데이터를 찾을 수 없음`);
-        return false;
-      }
-      
-      // 5. 직원별 출퇴근 열 찾기
-      const employeeColumns = {};
-      for (let col = 2; col < data[0].length; col += 3) {
-        const empName = data[0][col];
-        if (empName && !['날짜', '요일'].includes(empName)) {
-          // 각 직원의 출근/퇴근 열 저장
-          employeeColumns[empName] = {
-            checkInCol: col, 
-            checkOutCol: col + 1
-          };
-        }
-      }
-      
-      // 6. 각 직원의 미퇴근 확인
-      for (const empName in employeeColumns) {
-        const checkInCol = employeeColumns[empName].checkInCol;
-        const checkOutCol = employeeColumns[empName].checkOutCol;
+      // 3. 날짜가 1일이면 이전 월 마지막 날도 처리 (추가된 로직)
+      if (currentDay === 1) {
+        // 이전 월 계산
+        const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        const prevYear = currentMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
         
-        // 출근 기록은 있고 퇴근 기록이 없는 경우
-        const checkInValue = data[yesterdayRow][checkInCol];
-        const checkOutValue = data[yesterdayRow][checkOutCol];
+        const prevMonthSheet = SheetManager.getAttendanceSheet(prevMonth);
         
-        if (checkInValue && checkInValue !== '미출근' && 
-            (!checkOutValue || checkOutValue === '' || checkOutValue === '미퇴근')) {
+        if (prevMonthSheet) {
+          // 이전 월의 마지막 날 계산
+          const lastDayOfPrevMonth = new Date(prevYear, currentMonth === 1 ? 11 : currentMonth - 2, 0);
+          const lastDayStr = Utilities.formatDate(lastDayOfPrevMonth, 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
           
-          // 미퇴근 처리
-          Logger.log(`${empName} 미퇴근 처리 (행: ${yesterdayRow+1})`);
-          sheet.getRange(yesterdayRow + 1, checkOutCol + 1).setValue('미퇴근');
-          updatedCount++;
+          Logger.log(`월 전환 감지: 이전 월(${prevMonth}월) 마지막 날(${lastDayStr}) 확인`);
+          
+          // 이전 월 시트 데이터 가져오기
+          const prevData = prevMonthSheet.getDataRange().getValues();
+          
+          // 마지막 날 행 찾기
+          let lastDayRow = -1;
+          for (let row = 2; row < prevData.length; row++) {
+            if (prevData[row][0] instanceof Date) {
+              const rowDateStr = Utilities.formatDate(prevData[row][0], 'Asia/Seoul', CONSTANTS.DATE_FORMAT);
+              if (rowDateStr === lastDayStr) {
+                lastDayRow = row;
+                break;
+              }
+            }
+          }
+          
+          if (lastDayRow === -1) {
+            Logger.log(`이전 월 마지막 날(${lastDayStr}) 데이터를 찾을 수 없음`);
+          } else {
+            // 직원별 출퇴근 열 찾기 (이전 월 시트)
+            const prevEmployeeColumns = {};
+            for (let col = 3; col < prevData[0].length; col += 3) {
+              const empName = prevData[0][col];
+              if (empName && !['날짜', '요일', '주차'].includes(empName)) {
+                prevEmployeeColumns[empName] = {
+                  checkInCol: col, 
+                  checkOutCol: col + 1
+                };
+              }
+            }
+            
+            // 각 직원의 미퇴근 확인 (이전 월 시트)
+            for (const empName in prevEmployeeColumns) {
+              const checkInCol = prevEmployeeColumns[empName].checkInCol;
+              const checkOutCol = prevEmployeeColumns[empName].checkOutCol;
+              
+              // 출근 기록은 있고 퇴근 기록이 없는 경우
+              const checkInValue = prevData[lastDayRow][checkInCol];
+              const checkOutValue = prevData[lastDayRow][checkOutCol];
+              
+              if (checkInValue && checkInValue !== '미출근' && 
+                  (!checkOutValue || checkOutValue === '' || checkOutValue === '미퇴근')) {
+                
+                // 미퇴근 처리
+                Logger.log(`${empName} 미퇴근 처리 (이전 월 마지막 날, 행: ${lastDayRow+1})`);
+                prevMonthSheet.getRange(lastDayRow + 1, checkOutCol + 1).setValue('미퇴근');
+                updatedCount++;
+              }
+            }
+          }
         }
       }
       
