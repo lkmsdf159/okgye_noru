@@ -100,7 +100,7 @@ Google Apps Script의 핵심 파일로, 다음과 같은 모듈로 구성되어 
 - 주차별 근무 내역 요약
 
 ### Cloudflare
-대시보드 URL(`exec?page=worklog`)을 가리고 보안을 강화하기 위한 장치입니다:
+대시보드 URL을 가리고 보안을 강화하기 위한 장치입니다:
 - iframe을 활용하여 실제 URL을 숨기고 Cloudflare 도메인으로 접근하도록 함
 - 출퇴근 페이지에 임의로 접근하는 것을 방지
 
